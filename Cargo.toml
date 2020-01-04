@@ -1,0 +1,8 @@
+[package]
+name = "notification-test"
+version = "0.1.0"
+authors = ["AmaranthineCodices <git@amaranthinecodices.me>"]
+edition = "2018"
+
+[dependencies]
+winapi = { version = "0.3", features = [ "shellapi", "combaseapi", "errhandlingapi", "impl-default" ] }
