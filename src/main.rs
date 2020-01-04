@@ -1,34 +1,22 @@
-#[derive(Clone, Copy, Debug)]
-enum NotificationKind {
-    Add = 0x00000000,
-    Delete = 0x00000002,
-}
-
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStrExt;
 use winapi::shared::guiddef::GUID;
+use winapi::um::shellapi::{self, Shell_NotifyIconW, NOTIFYICONDATAW};
 
-fn send_notification(
-    kind: NotificationKind,
-    input_title: String,
-    body: String,
-    guid: Option<GUID>,
-) -> Result<GUID, ()> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStrExt;
-    use winapi::um::shellapi::{self, Shell_NotifyIconW, NOTIFYICONDATAW};
-
-    let mut info = [0u16; 256];
+fn create_notification(title: String, body: String) -> Result<GUID, u32> {
     let info_bytes: Vec<u16> = OsString::from(&body)
         .as_os_str()
         .encode_wide()
         .take(256)
         .collect();
+    let mut info = [0u16; 256];
 
-    let mut title = [0u16; 64];
-    let title_bytes: Vec<u16> = OsString::from(&input_title)
+    let title_bytes: Vec<u16> = OsString::from(&title)
         .as_os_str()
         .encode_wide()
         .take(64)
         .collect();
+    let mut title = [0u16; 64];
 
     unsafe {
         std::ptr::copy_nonoverlapping(
@@ -44,13 +32,13 @@ fn send_notification(
         );
     }
 
-    let guid = guid.unwrap_or_else(|| {
+    let guid = {
         let mut gen_guid: GUID = Default::default();
         unsafe {
             winapi::um::combaseapi::CoCreateGuid(&mut gen_guid);
         }
         gen_guid
-    });
+    };
 
     let mut icon_data = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -62,32 +50,37 @@ fn send_notification(
         ..Default::default()
     };
 
-    let success = unsafe { Shell_NotifyIconW(kind as u32, &mut icon_data) != 0 };
+    let success = unsafe { Shell_NotifyIconW(shellapi::NIM_ADD, &mut icon_data) != 0 };
 
     if !success {
         let last_err = unsafe { winapi::um::errhandlingapi::GetLastError() };
-        println!("{}: {}", success, last_err);
-        return Err(());
+        return Err(last_err);
     }
 
     Ok(guid)
 }
 
+fn delete_notification(guid: GUID) -> Result<(), u32> {
+    let mut icon_data = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        uFlags: shellapi::NIF_INFO | shellapi::NIF_GUID,
+        guidItem: guid,
+        ..Default::default()
+    };
+
+    let success = unsafe { Shell_NotifyIconW(shellapi::NIM_DELETE, &mut icon_data) != 0 };
+
+    if !success {
+        let last_err = unsafe { winapi::um::errhandlingapi::GetLastError() };
+        return Err(last_err);
+    }
+
+    Ok(())
+}
+
 fn main() {
-    println!("Hello, world!");
-    let guid = send_notification(
-        NotificationKind::Add,
-        "Test".to_owned(),
-        "This is a test notification".to_owned(),
-        None,
-    )
-    .unwrap();
+    let guid =
+        create_notification("Test".to_owned(), "This is a test notification".to_owned()).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(10));
-    send_notification(
-        NotificationKind::Delete,
-        "".to_owned(),
-        "".to_owned(),
-        Some(guid),
-    )
-    .unwrap();
+    delete_notification(guid).unwrap();
 }
